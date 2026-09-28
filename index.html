@@ -100,7 +100,7 @@ select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(
 <script type="module">
 import {createClient} from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 // >>> PASTE YOUR SUPABASE URL AND ANON KEY HERE (Project Settings > API) <<<
-const SUPABASE_URL='PASTE_PROJECT_URL',SUPABASE_KEY='PASTE_ANON_PUBLIC_KEY';
+const SUPABASE_URL='https://lszgbdnpgsoovuzzcoto.supabase.co',SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxzemdiZG5wZ3Nvb3Z1enpjb3RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1NTkzMTIsImV4cCI6MjEwNjEzNTMxMn0.L5h437BEvJct4sPjHyabKf7ZRFVbEOokH8tTjN8f5Qk';
 const sb=createClient(SUPABASE_URL,SUPABASE_KEY);
 let uid=null,chan=null,ready=false,curUid;
 const DEF={cfg:{start:'09:00',lateOn:true,late:5,absent:20,maxBreak:10,maxBreaks:3,oneOut:true},
