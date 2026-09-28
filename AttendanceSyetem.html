@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Class Attendance Kiosk</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1b1f24;--mute:#66707c;--line:#e2e5ea;--ok:#1a7f4b;--warn:#b26a00;--bad:#c62828;--acc:#2957d6;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111418;--card:#1a1f26;--text:#e8ebef;--mute:#98a2b0;--line:#2a313b;--ok:#4cc38a;--warn:#f0a53a;--bad:#ff6b6b;--acc:#6f95ff}}
+:root[data-theme="dark"]{--bg:#111418;--card:#1a1f26;--text:#e8ebef;--mute:#98a2b0;--line:#2a313b;--ok:#4cc38a;--warn:#f0a53a;--bad:#ff6b6b;--acc:#6f95ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,textarea,button{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px}
+button{cursor:pointer;background:var(--acc);color:#fff;border:0;font-weight:600}
+button.sec{background:var(--bg);color:var(--text);border:1px solid var(--line)}
+#id{flex:1;min-width:160px;font-size:22px}
+#msg{margin-top:10px;padding:12px;border-radius:8px;font-weight:600;display:none}
+#msg.ok{display:block;background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+#msg.bad{display:block;background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mute);font-weight:600}
+.tag{padding:2px 8px;border-radius:99px;font-size:12px;font-weight:700}
+.Present{color:var(--ok)}.Late{color:var(--warn)}.Absent,.over{color:var(--bad)}.wait{color:var(--mute)}
+tr.over td{background:color-mix(in srgb,var(--bad) 12%,transparent)}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--mute);gap:4px}
+label input{width:96px}
+details summary{cursor:pointer;font-weight:600}
+textarea{width:100%;min-height:110px;font-family:ui-monospace,monospace;font-size:13px}
+.stat{color:var(--mute);font-size:13px}
+select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;min-width:180px}
+#cardsbox{display:none;position:fixed;inset:0;background:var(--bg);overflow:auto;padding:16px;z-index:9}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px}
+.idc{border:1px dashed #888;border-radius:8px;padding:10px;text-align:center;display:flex;flex-direction:column;gap:2px;background:#fff;color:#000;break-inside:avoid}
+.idc svg{width:120px;height:120px;margin:0 auto}
+@media print{main{display:none}#cardsbox{position:static;padding:0}.noprint{display:none}}
+</style>
+</head>
+<body>
+<div id="login" class="card" style="max-width:420px;margin:60px auto;display:none">
+  <h1>Attendance: sign in</h1>
+  <div class="row"><input id="email" type="email" placeholder="Email" autocomplete="username" style="flex:1;font-size:16px"><input id="pw" type="password" placeholder="Password" autocomplete="current-password" style="flex:1;font-size:16px"><button id="signin">Sign in</button></div>
+  <div id="loginMsg" style="margin-top:10px;color:var(--bad);font-weight:600"></div>
+</div>
+<main id="app" style="display:none">
+<h1><button id="signout" class="sec" style="float:right;font-size:13px;padding:6px 10px">Sign out</button>Attendance Kiosk <span id="cls" style="color:var(--acc)"></span> <span class="stat" id="clock"></span></h1>
+
+<div class="card">
+  <div class="row">
+    <input id="id" placeholder="Scan or type student ID, press Enter" autocomplete="off" autofocus>
+    <button id="go">Scan</button>
+    <button id="leave" class="sec">Leaving for the day</button>
+  </div>
+  <div class="stat" style="margin-top:6px">1st scan = arrive · then each scan toggles bathroom out / back in.</div>
+  <div id="msg"></div>
+</div>
+
+<div class="card"><div class="tw"><table>
+<thead><tr><th>Student</th><th>Status</th><th>Now</th><th>Arrived</th><th>Breaks</th><th>Break time</th><th>Time in room</th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+<div class="row" style="margin-top:10px;justify-content:space-between"><div class="stat" id="summary"></div><button id="xlsx">⬇ End class &amp; download Excel</button></div></div>
+
+<div class="card"><details><summary>Setup and rules</summary>
+<div class="row" style="margin:12px 0">
+  <label>Class start<input type="time" id="start"></label>
+  <label style="flex-direction:row;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="lateOn" style="width:auto"> Mark late arrivals</label>
+  <label>Late after (min)<input type="number" id="late" min="0"></label>
+  <label>Absent after (min)<input type="number" id="absent" min="1"></label>
+  <label>Max break (min)<input type="number" id="maxBreak" min="1"></label>
+  <label>Max breaks<input type="number" id="maxBreaks" min="1"></label>
+  <label style="flex-direction:row;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="oneOut" style="width:auto"> One out at a time</label>
+</div>
+<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px">
+  <b>Saved class lists</b>
+  <div class="row" style="margin:8px 0"><select id="listSel"></select><button id="loadList" class="sec">Load</button><button id="delList" class="sec">Delete</button></div>
+  <div class="row"><input id="listName" placeholder="Class name, e.g. Tutorial A"><button id="saveList" class="sec">Save roster below as a list</button></div>
+  <div id="listMsg" style="margin-top:8px;font-weight:600;min-height:1.2em"></div>
+  <div class="stat" style="margin-top:6px">Loading a list replaces the roster and clears the current log, so download the Excel first.</div>
+</div>
+<label style="margin-bottom:8px">Roster: one per line as ID, Name</label>
+<textarea id="roster"></textarea>
+<div class="row" style="margin-top:10px">
+  <button id="save">Save setup</button>
+  <button id="cards" class="sec">Print QR ID cards</button>
+  <button id="csv" class="sec">Show CSV log</button>
+  <button id="reset" class="sec">New session (clear log)</button>
+</div>
+<textarea id="csvout" style="display:none;margin-top:10px" readonly></textarea>
+</details></div>
+</main>
+
+<div id="cardsbox"></div>
+<script type="module">
+import {createClient} from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+// >>> PASTE YOUR SUPABASE URL AND ANON KEY HERE (Project Settings > API) <<<
+const SUPABASE_URL='PASTE_PROJECT_URL',SUPABASE_KEY='PASTE_ANON_PUBLIC_KEY';
+const sb=createClient(SUPABASE_URL,SUPABASE_KEY);
+let uid=null,chan=null,ready=false,curUid;
+const DEF={cfg:{start:'09:00',lateOn:true,late:5,absent:20,maxBreak:10,maxBreaks:3,oneOut:true},
+roster:[{id:'1001',name:'Amira Hassan'},{id:'1002',name:'Omar Khaled'},{id:'1003',name:'Sara Ali'},{id:'1004',name:'Youssef Adel'}],events:[]};
+let S=JSON.parse(JSON.stringify(DEF));
+S.lists=S.lists||[];S.className=S.className||'';
+const $=id=>document.getElementById(id);
+const fail=e=>say('Save failed: '+(e&&(e.message||e.code)),false);
+const persist=async()=>{if(!uid||!ready)return;const {error}=await sb.from('teacher_data').upsert({user_id:uid,data:{cfg:S.cfg,roster:S.roster,lists:S.lists,className:S.className,events:S.events},updated_at:new Date().toISOString()});if(error)fail(error)};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtT=t=>t?new Date(t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'-';
+const fmtD=ms=>{ms=Math.max(0,ms);const s=Math.floor(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+function startMs(){const [h,m]=S.cfg.start.split(':').map(Number);const d=new Date();d.setHours(h,m,0,0);return d.getTime()}
+
+function derive(st,now){
+  const ev=S.events.filter(e=>e.id===st.id).sort((a,b)=>a.t-b.t);
+  const o={state:'none',arrived:null,breaks:0,breakMs:0,outSince:null,left:null,longest:0,overdueBreaks:0};
+  for(const e of ev){
+    if(e.type==='check_in'){o.arrived=e.t;o.state='in'}
+    else if(e.type==='break_start'){o.state='out';o.outSince=e.t;o.breaks++}
+    else if(e.type==='break_end'){const dur=e.t-o.outSince;o.breakMs+=dur;o.longest=Math.max(o.longest,dur);if(dur>S.cfg.maxBreak*60000)o.overdueBreaks++;o.outSince=null;o.state='in'}
+    else if(e.type==='check_out'){o.left=e.t;o.state='left'}
+  }
+  const end=o.left||now;
+  const curOut=o.state==='out'?now-o.outSince:0;
+  o.curOut=curOut;o.breakMs+=curOut;
+  o.inRoom=o.arrived?end-o.arrived-o.breakMs:0;
+  const s0=startMs();
+  if(!o.arrived)o.status=now>s0+S.cfg.absent*60000?'Absent':'Not here yet';
+  else if(o.arrived>s0+S.cfg.absent*60000){o.status='Absent';o.afterCutoff=true}
+  else o.status=(S.cfg.lateOn!==false&&o.arrived>s0+S.cfg.late*60000)?'Late':'Present';
+  o.overdue=o.state==='out'&&curOut>S.cfg.maxBreak*60000;
+  return o;
+}
+
+function say(text,ok){const m=$('msg');m.textContent=text;m.className=ok?'ok':'bad'}
+function log(id,type){const ev={id,type,t:Date.now()};S.events.push(ev);if(uid&&ready)sb.rpc('append_event',{ev}).then(({error})=>{if(error)fail(error)})}
+
+function scan(mode){
+  const id=$('id').value.trim();$('id').value='';$('id').focus();
+  if(!id)return;
+  const st=S.roster.find(r=>r.id===id);
+  if(!st)return say('Unknown ID: '+id,false);
+  const now=Date.now(),d=derive(st,now);
+  if(mode==='leave'){
+    if(d.state==='in'){log(id,'check_out');return say(st.name+' checked out. Total in room: '+fmtD(d.inRoom),true)}
+    if(d.state==='out')return say(st.name+' is on a break. Scan back in first.',false);
+    return say(st.name+(d.state==='left'?' already checked out.':' has not arrived.'),false);
+  }
+  if(d.state==='none'){log(id,'check_in');const d2=derive(st,Date.now());if(d2.afterCutoff)return say(st.name+' scanned at '+fmtT(now)+', after the absent cutoff. Marked ABSENT.',false);return say(st.name+' checked in'+(d2.status==='Late'?' (LATE)':'')+' at '+fmtT(now),true)}
+  if(d.state==='left')return say(st.name+' already checked out.',false);
+  if(d.state==='in'){
+    if(S.cfg.oneOut){const other=S.roster.find(r=>r.id!==id&&derive(r,now).state==='out');if(other)return say('Wait: '+other.name+' is already out.',false)}
+    if(d.breaks>=S.cfg.maxBreaks)return say(st.name+': no breaks left ('+S.cfg.maxBreaks+' max).',false);
+    log(id,'break_start');return say(st.name+' out at '+fmtT(now)+'. Scan again on return.',true);
+  }
+  if(d.state==='out'){log(id,'break_end');return say('Welcome back '+st.name+'. Break: '+fmtD(d.curOut)+(d.overdue?' (OVERDUE)':''),d.overdue?false:true)}
+}
+
+function render(){
+  const now=Date.now();
+  $('clock').textContent='· '+new Date(now).toLocaleTimeString();
+  let c={Present:0,Late:0,Absent:0,out:0};
+  $('rows').innerHTML=S.roster.map(st=>{
+    const d=derive(st,now);
+    if(d.status==='Present')c.Present++;else if(d.status==='Late')c.Late++;else if(d.status==='Absent')c.Absent++;
+    if(d.state==='out')c.out++;
+    const stateTxt=d.state==='out'?('On break '+fmtD(d.curOut)+(d.overdue?' ⚠ OVERDUE':'')):d.state==='in'?'In room':d.state==='left'?'Left '+fmtT(d.left):'-';
+    const cls=d.status==='Not here yet'?'wait':d.status;
+    return `<tr class="${d.overdue?'over':''}"><td><b>${esc(st.name)}</b> <span class="stat">${esc(st.id)}</span></td><td class="${cls}"><b>${d.status}</b></td><td>${stateTxt}</td><td>${fmtT(d.arrived)}${d.afterCutoff?' <span class="stat">(after cutoff)</span>':''}</td><td>${d.breaks}</td><td>${d.arrived?fmtD(d.breakMs):'-'}</td><td>${d.arrived?fmtD(d.inRoom):'-'}</td></tr>`;
+  }).join('');
+  $('summary').textContent=`Present ${c.Present} · Late ${c.Late} · Absent ${c.Absent} · Out now ${c.out}`;
+}
+
+function syncLate(){$('late').disabled=!$('lateOn').checked}
+function loadForm(){
+  const c=S.cfg;$('start').value=c.start;$('late').value=c.late;$('lateOn').checked=c.lateOn!==false;syncLate();$('absent').value=c.absent;$('maxBreak').value=c.maxBreak;$('maxBreaks').value=c.maxBreaks;$('oneOut').checked=c.oneOut;
+  $('roster').value=S.roster.map(r=>r.id+', '+r.name).join('\n');
+}
+$('lateOn').onchange=syncLate;
+$('save').onclick=()=>{
+  S.cfg={start:$('start').value||'09:00',lateOn:$('lateOn').checked,late:+$('late').value||0,absent:+$('absent').value||20,maxBreak:+$('maxBreak').value||10,maxBreaks:+$('maxBreaks').value||3,oneOut:$('oneOut').checked};
+  S.roster=$('roster').value.split('\n').map(l=>{const i=l.indexOf(',');return i<0?null:{id:l.slice(0,i).trim(),name:l.slice(i+1).trim()}}).filter(r=>r&&r.id&&r.name);
+  persist();render();say('Setup saved.',true);
+};
+$('reset').onclick=()=>confirmTwice($('reset'),'Click again to clear log',()=>{S.events=[];persist();render();lsay('Session cleared.',true)});
+$('csv').onclick=()=>{
+  const nm=Object.fromEntries(S.roster.map(r=>[r.id,r.name]));
+  const t=$('csvout');
+  t.value='student_id,name,event,timestamp\n'+S.events.map(e=>[e.id,'"'+(nm[e.id]||'')+'"',e.type,new Date(e.t).toISOString()].join(',')).join('\n');
+  t.style.display='block';t.select();
+};
+$('xlsx').onclick=async()=>{
+  const now=Date.now();
+  const mins=ms=>Math.round(ms/600)/100;
+  const clock=t=>t?new Date(t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
+  const summary=S.roster.map(st=>{
+    const d=derive(st,now);
+    const over=d.overdueBreaks+(d.overdue?1:0);
+    return {'Student ID':st.id,'Name':st.name,'Status':d.status==='Not here yet'?'Absent':d.status,
+      'Arrived':clock(d.arrived),'Left':d.left?clock(d.left):(d.arrived?'Did not check out':''),
+      'Breaks taken':d.breaks,'Total break (min)':mins(d.breakMs),'Longest break (min)':mins(Math.max(d.longest,d.curOut)),
+      'Overdue breaks':over,'Time in room (min)':mins(d.inRoom),'Note':d.afterCutoff?'Arrived at '+clock(d.arrived)+', after the absent cutoff':''};
+  });
+  const nm=Object.fromEntries(S.roster.map(r=>[r.id,r.name]));
+  const labels={check_in:'Arrived',break_start:'Left for break',break_end:'Returned from break',check_out:'Checked out'};
+  const log=S.events.slice().sort((a,b)=>a.t-b.t).map(e=>({'Student ID':e.id,'Name':nm[e.id]||'','Event':labels[e.type]||e.type,'Time':clock(e.t)}));
+  const info=[{'Setting':'Class','Value':S.className||''},{'Setting':'Date','Value':new Date().toLocaleDateString()},{'Setting':'Class start','Value':S.cfg.start},{'Setting':'Late rule','Value':S.cfg.lateOn!==false?('On, after '+S.cfg.late+' min'):'Off'},{'Setting':'Absent after (min)','Value':S.cfg.absent},{'Setting':'Max break (min)','Value':S.cfg.maxBreak}];
+  try{
+    const wb=XLSX.utils.book_new();
+    const add=(rows,name,w)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{'':'No data'}]);ws['!cols']=w.map(x=>({wch:x}));XLSX.utils.book_append_sheet(wb,ws,name)};
+    add(summary,'Summary',[12,22,10,12,18,12,16,18,15,18,44]);
+    add(log,'Event log',[12,22,22,14]);
+    add(info,'Settings',[20,14]);
+    XLSX.writeFile(wb,(S.className?S.className.replace(/[^\w-]+/g,'_')+'-':'attendance-')+new Date().toISOString().slice(0,10)+'.xlsx');
+    say('Excel file ready. Use "New session" in Setup before the next class.',true);
+  }catch(e){if(e&&e.code==='declined')return;say('Could not create the file: '+(e&&e.message||e),false)}
+};
+window.closeCards=()=>{$('cardsbox').style.display='none'};
+$('cards').onclick=()=>{
+  try{
+    const html=S.roster.map(r=>{const q=qrcode(0,'M');q.addData(r.id);q.make();return `<div class="idc">${q.createSvgTag({cellSize:4,margin:0,scalable:true})}<b>${esc(r.name)}</b><span>${esc(r.id)}</span></div>`}).join('');
+    $('cardsbox').innerHTML=`<div class="noprint row"><button onclick="window.print()">Print</button><button class="sec" onclick="closeCards()">Close</button><span class="stat">Cut out and hand one to each student.</span></div><div class="grid">${html}</div>`;
+    $('cardsbox').style.display='block';
+  }catch(e){say('Could not generate QR cards: '+(e&&e.message||e),false)}
+};
+function parseRoster(){return $('roster').value.split('\n').map(l=>{const i=l.indexOf(',');return i<0?null:{id:l.slice(0,i).trim(),name:l.slice(i+1).trim()}}).filter(r=>r&&r.id&&r.name)}
+function renderLists(){
+  $('listSel').innerHTML=S.lists.length?S.lists.map((l,i)=>`<option value="${i}">${esc(l.name)} (${l.roster.length})</option>`).join(''):'<option value="">No saved lists yet</option>';
+  $('cls').textContent=S.className?'· '+S.className:'';
+}
+const armed=new WeakMap();
+function confirmTwice(btn,text,fn){
+  const a=armed.get(btn);
+  if(a){clearTimeout(a.t);btn.textContent=a.orig;armed.delete(btn);return fn()}
+  const orig=btn.textContent;btn.textContent=text;
+  armed.set(btn,{orig,t:setTimeout(()=>{btn.textContent=orig;armed.delete(btn)},4000)});
+}
+function lsay(text,ok){const m=$('listMsg');m.textContent=text;m.style.color=ok?'var(--ok)':'var(--bad)';say(text,ok)}
+$('saveList').onclick=()=>{
+  const name=$('listName').value.trim(),roster=parseRoster();
+  if(!name)return lsay('Type a class name first.',false);
+  if(!roster.length)return lsay('The roster is empty. Use lines like: ID, Name',false);
+  const i=S.lists.findIndex(l=>l.name.toLowerCase()===name.toLowerCase());
+  const run=()=>{
+    if(i>=0)S.lists[i]={name:S.lists[i].name,roster};else S.lists.push({name,roster});
+    S.className=name;persist();renderLists();$('listName').value='';lsay('Saved class list "'+name+'" ('+roster.length+' students).',true);
+  };
+  if(i>=0)confirmTwice($('saveList'),'Already exists: click again to replace',run);else run();
+};
+$('loadList').onclick=()=>{
+  const l=S.lists[+$('listSel').value];
+  if(!l)return lsay('No saved list to load. Save one first.',false);
+  const run=()=>{
+    S.roster=l.roster.map(r=>({id:r.id,name:r.name}));S.events=[];S.className=l.name;
+    persist();loadForm();render();renderLists();lsay('Loaded "'+l.name+'" ('+l.roster.length+' students).',true);
+  };
+  if(S.events.length)confirmTwice($('loadList'),'Clears log: click again',run);else run();
+};
+$('delList').onclick=()=>{
+  const i=+$('listSel').value,l=S.lists[i];
+  if(!l)return lsay('No saved list to delete.',false);
+  confirmTwice($('delList'),'Click again to delete',()=>{
+    S.lists.splice(i,1);if(S.className===l.name)S.className='';
+    persist();renderLists();lsay('Deleted "'+l.name+'".',true);
+  });
+};
+$('go').onclick=()=>scan('toggle');
+$('leave').onclick=()=>scan('leave');
+$('id').addEventListener('keydown',e=>{if(e.key==='Enter')scan('toggle')});
+loadForm();render();renderLists();setInterval(render,1000);
+$('signin').onclick=async()=>{$('loginMsg').textContent='';const {error}=await sb.auth.signInWithPassword({email:$('email').value.trim(),password:$('pw').value});if(error)$('loginMsg').textContent='Sign-in failed: '+error.message};
+$('pw').addEventListener('keydown',e=>{if(e.key==='Enter')$('signin').click()});
+$('signout').onclick=()=>sb.auth.signOut();
+function applyData(d){S.cfg=d.cfg||S.cfg;S.roster=d.roster||[];S.lists=d.lists||[];S.className=d.className||'';S.events=d.events||[]}
+async function start(user){
+  if(chan){sb.removeChannel(chan);chan=null}
+  ready=false;uid=user?user.id:null;
+  $('login').style.display=user?'none':'block';$('app').style.display=user?'block':'none';
+  if(!user)return;
+  const {data,error}=await sb.from('teacher_data').select('data').eq('user_id',uid).maybeSingle();
+  if(error)return say('Cannot load data: '+error.message,false);
+  ready=true;
+  if(data)applyData(data.data);else await persist();
+  loadForm();render();renderLists();$('id').focus();
+  chan=sb.channel('td-'+uid).on('postgres_changes',{event:'*',schema:'public',table:'teacher_data',filter:'user_id=eq.'+uid},p=>{if(p.new&&p.new.data){applyData(p.new.data);render();renderLists()}}).subscribe();
+}
+sb.auth.onAuthStateChange((ev,session)=>{
+  const u=session&&session.user?session.user:null,nid=u?u.id:null;
+  if(nid===curUid)return;
+  curUid=nid;setTimeout(()=>start(u),0);
+});
+</script>
+</body>
+</html>
